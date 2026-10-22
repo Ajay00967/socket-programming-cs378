@@ -61,11 +61,13 @@ for i in range(n):
 if my_id is None:
     raise SystemExit("Node ID not received")
 
-print("My node:", my_id)
-print("Neighbours:")
+# print("My node:", my_id)
+# print("Neighbours:")
 
-for node, (ip, port, cost) in neighbours.items():
-    print(node, ip, port, cost)
+# for node, (ip, port, cost) in neighbours.items():
+#     print(node, ip, port, cost)
+
+print(",".join([f"{my_id}=0"] + [f"{node}={cost}" for node, (ip, port, cost) in neighbours.items()]))
 
 def make_lsp(my_id, seq, neighbours):
     packet = struct.pack("!cIB", my_id.encode(), seq, len(neighbours))
@@ -76,7 +78,7 @@ def make_lsp(my_id, seq, neighbours):
     return packet
 
 def print_graph(known):
-    print("\nKnown graph:")
+    print("Known graph:")
 
     for node in sorted(known):
         links = known[node]
@@ -121,9 +123,9 @@ while True:
         send_lsp(packet, neighbours)
         last_lsp = now
 
-    # if now - last_graph >= 15:
-    #     print_graph(known)
-    #     last_graph = now
+    if now - last_graph >= 15:
+        print_graph(known)
+        last_graph = now
 
     ready, _, _ = select.select([s, udp], [], [], 1)
 
@@ -177,11 +179,13 @@ while True:
                 send_lsp(packet, neighbours)
                 last_lsp = time.monotonic()
 
-                print("Updated neighbours:")
-                print("My node:", my_id)
+                # print("Updated neighbours:")
+                # print("My node:", my_id)
 
-                for node, (ip, port, cost) in neighbours.items():
-                    print(node, ip, port, cost)
+                # for node, (ip, port, cost) in neighbours.items():
+                #     print(node, ip, port, cost)
+                
+                print(",".join([f"{my_id}=0"] + [f"{node}={cost}" for node, (ip, port, cost) in neighbours.items()]))
 
                 print_graph(known)
 
@@ -213,7 +217,7 @@ while True:
 
                 known[origin] = links
 
-                print("Received LSP from", origin, "sequence", rseq)
+                print("\nReceived LSP from", origin, "sequence", rseq)
                 print_graph(known)
 
                 send_lsp(data, neighbours, addr)

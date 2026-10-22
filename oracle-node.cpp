@@ -109,12 +109,18 @@ bool readConfig(const string &path, vector<vector<int>> &adj) {
     }
 
     int n = rows.size() + 1;
+    for (int i = 0; i < (int)rows.size(); i++) {
+        if ((int)rows[i].size() != n - 1 - i) {
+            cerr << "Config has wrong row length, ignoring\n";
+            return false;
+        }
+    }
     adj.assign(n, vector<int>(n, -1));
 
     for (int i = 0; i < n; i++) adj[i][i] = 0;
 
-    for (int i = 0; i < rows.size(); i++) {
-        for (int j = 0; j < rows[i].size(); j++) {
+    for (int i = 0; i < (int)rows.size(); i++) {
+        for (int j = 0; j < (int)rows[i].size(); j++) {
             adj[i][i + j + 1] = adj[i + j + 1][i] = (rows[i][j] == -1 ? INF : rows[i][j]);
         }
     }
@@ -195,7 +201,8 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
-        cout << clients[i].udpPort << ' ' << ipstr << endl;
+        // cout << clients[i].udpPort << ' ' << ipstr << endl;
+        cout << "Node " << char('A' + i) << " connected: " << ipstr << ':' << clients[i].udpPort << endl;
 
     }
 
@@ -218,7 +225,7 @@ int main(int argc, char* argv[]) {
 
         vector<vector<int>> newAdj;
 
-        if (!readConfig(argv[1], newAdj))
+        if (!readConfig(argv[1], newAdj) || newAdj.size() != adj.size())
             continue;
 
         adj = newAdj;
@@ -230,7 +237,7 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        cout << "Modified\n";
+        cout << "Config modified, LINK-STATE sent to all nodes\n";
 
         lastModified = currentModified;
     }
