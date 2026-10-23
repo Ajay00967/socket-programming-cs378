@@ -15,6 +15,13 @@ def recvAll(s, size):
 
     return data
 
+def getMyIp(on_ip):
+    t = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    t.connect((on_ip, 5000))
+    ip = t.getsockname()[0]
+    t.close()
+    return ip
+
 if len(sys.argv) != 3:
     print("Usage: python3 virtual-node.py ON_IP UDP_PORT")
     raise SystemExit(1)
@@ -22,13 +29,28 @@ if len(sys.argv) != 3:
 ON_IP = sys.argv[1]
 UDP_PORT = int(sys.argv[2])
 
+try:
+    vn_ip = getMyIp(ON_IP)
+except OSError as e:
+    print("Could not find own IP address:", e)
+    raise SystemExit(1)
+
 udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-udp.bind(("", UDP_PORT))
+
+try:
+    udp.bind((vn_ip, UDP_PORT))
+except OSError as e:
+    print("Could not bind UDP port", UDP_PORT, ":", e)
+    raise SystemExit(1)
 
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-s.connect((ON_IP, 5000))
 
-vn_ip = s.getsockname()[0]
+try:
+    s.connect((ON_IP, 5000))
+except OSError as e:
+    print("Could not connect to Oracle Node at", ON_IP, ":", e)
+    raise SystemExit(1)
+
 msg = struct.pack("!4sH", socket.inet_aton(vn_ip), UDP_PORT)
 s.sendall(msg)
 
@@ -60,12 +82,6 @@ for i in range(n):
 
 if my_id is None:
     raise SystemExit("Node ID not received")
-
-# print("My node:", my_id)
-# print("Neighbours:")
-
-# for node, (ip, port, cost) in neighbours.items():
-#     print(node, ip, port, cost)
 
 print(",".join([f"{my_id}=0"] + [f"{node}={cost}" for node, (ip, port, cost) in neighbours.items()]))
 
@@ -179,12 +195,6 @@ while True:
                 send_lsp(packet, neighbours)
                 last_lsp = time.monotonic()
 
-                # print("Updated neighbours:")
-                # print("My node:", my_id)
-
-                # for node, (ip, port, cost) in neighbours.items():
-                #     print(node, ip, port, cost)
-                
                 print(",".join([f"{my_id}=0"] + [f"{node}={cost}" for node, (ip, port, cost) in neighbours.items()]))
 
                 print_graph(known)
@@ -221,5 +231,3 @@ while True:
                 print_graph(known)
 
                 send_lsp(data, neighbours, addr)
-                
-                

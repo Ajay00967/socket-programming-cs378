@@ -1,14 +1,13 @@
 #include <iostream>
 #include <cstring>
 #include <sys/socket.h>
+#include <sys/select.h>
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <fstream>
 #include <sstream>
 #include <vector>
 #include <sys/stat.h>
-#include <thread>
-#include <chrono>
 #include <cstdint>
 using namespace std;
 
@@ -35,9 +34,11 @@ bool recvAll(int fd, void *data, size_t size) {
 vector<char> makeLinkState(vector<Node> &clients, vector<vector<int>> &adj, int n, int id){
     vector<int> entries;
     entries.push_back(id);
-    for (int j = 0; j < n; j++) {
-        if (j != id && adj[id][j] != INF)
-            entries.push_back(j);
+    if (id < n) {
+        for (int j = 0; j < n; j++) {
+            if (j != id && adj[id][j] != INF)
+                entries.push_back(j);
+        }
     }
 
     vector<char> msg;
@@ -80,10 +81,10 @@ bool sendLinkState(int id, vector<Node> &clients, vector<vector<int>> &adj, int 
     return true;
 }
 
-time_t getModifiedTime(const string &path) {
+long long getModifiedTime(const string &path) {
     struct stat fileInfo{};
     if (stat(path.c_str(), &fileInfo) != 0) return -1;
-    return fileInfo.st_mtime;
+    return (long long)fileInfo.st_mtim.tv_sec * 1000000000LL + fileInfo.st_mtim.tv_nsec;
 }
 
 bool readConfig(const string &path, vector<vector<int>> &adj) {
@@ -143,7 +144,7 @@ int main(int argc, char* argv[]) {
 
     int s = socket(AF_INET, SOCK_STREAM, 0);
     if (s < 0) {
-        cerr << "socket\n"; 
+        cerr << "Failed to create socket. Exiting\n"; 
         return 1; 
     }
     int yes = 1;
@@ -155,7 +156,7 @@ int main(int argc, char* argv[]) {
     addr.sin_port = htons(5000);
 
     if (bind(s, (sockaddr*)&addr, sizeof(addr)) < 0) {
-        cerr << "Port in use\n";
+        cerr << "Failed to bind port 5000 (already in use). Exiting\n";
         close(s);
         return 1;
     }
@@ -165,12 +166,10 @@ int main(int argc, char* argv[]) {
     vector<Node> clients(n);
 
     for (int i = 0; i < n; i++) {
-        // cout << "Waiting for node " << char('A' + i) << "...\n";
-
         int c = accept(s, nullptr, nullptr);
 
         if (c < 0) {
-            cerr<< "accept\n";
+            cerr << "Failed to accept connection. Exiting\n";
             close(s);
             return 1;
         }
@@ -195,13 +194,12 @@ int main(int argc, char* argv[]) {
         char ipstr[INET_ADDRSTRLEN];
 
         if (inet_ntop(AF_INET, &clients[i].ip, ipstr, sizeof(ipstr)) == nullptr) {
-            cerr<< "inet_ntop\n";
+            cerr << "Failed to convert node IP address. Exiting\n";
             close(c);
             close(s);
             return 1;
         }
 
-        // cout << clients[i].udpPort << ' ' << ipstr << endl;
         cout << "Node " << char('A' + i) << " connected: " << ipstr << ':' << clients[i].udpPort << endl;
 
     }
@@ -213,25 +211,69 @@ int main(int argc, char* argv[]) {
     }
 
 
-    time_t lastModified = getModifiedTime(argv[1]);
+    long long lastModified = getModifiedTime(argv[1]);
 
     while (true) {
-        this_thread::sleep_for(chrono::seconds(1));
+        fd_set readSet;
+        FD_ZERO(&readSet);
+        FD_SET(s, &readSet);
 
-        time_t currentModified = getModifiedTime(argv[1]);
+        struct timeval timeout;
+        timeout.tv_sec = 1;
+        timeout.tv_usec = 0;
+
+        int ready = select(s + 1, &readSet, nullptr, nullptr, &timeout);
+
+        if (ready > 0 && FD_ISSET(s, &readSet)) {
+            int c = accept(s, nullptr, nullptr);
+
+            if (c >= 0) {
+                if (clients.size() >= 26) {
+                    close(c);
+                } else {
+                    unsigned char msg[6];
+
+                    if (!recvAll(c, msg, sizeof(msg))) {
+                        close(c);
+                    } else {
+                        Node extra;
+                        extra.tcpfd = c;
+                        memcpy(&extra.ip.s_addr, msg, 4);
+
+                        uint16_t netPort;
+                        memcpy(&netPort, msg + 4, 2);
+                        extra.udpPort = ntohs(netPort);
+
+                        clients.push_back(extra);
+                        int id = clients.size() - 1;
+
+                        char ipstr[INET_ADDRSTRLEN];
+                        inet_ntop(AF_INET, &extra.ip, ipstr, sizeof(ipstr));
+
+                        cout << "Node " << char('A' + id) << " connected (isolated): " << ipstr << ':' << extra.udpPort << endl;
+
+                        if (!sendLinkState(id, clients, adj, n)) {
+                            cerr << "Failed to send LINK-STATE to node " << char('A' + id) << '\n';
+                        }
+                    }
+                }
+            }
+        }
+
+        long long currentModified = getModifiedTime(argv[1]);
 
         if (currentModified == -1 || currentModified == lastModified)
             continue;
 
         vector<vector<int>> newAdj;
 
-        if (!readConfig(argv[1], newAdj) || newAdj.size() != adj.size())
+        if (!readConfig(argv[1], newAdj) || newAdj.size() < adj.size() || newAdj.size() > clients.size())
             continue;
 
         adj = newAdj;
         n = adj.size();
 
-        for (int i = 0; i < n; i++) {
+        for (int i = 0; i < (int)clients.size(); i++) {
             if (!sendLinkState(i, clients, adj, n)) {
                 cerr << "Failed to send LINK-STATE to node "<< char('A' + i) << '\n';
             }
